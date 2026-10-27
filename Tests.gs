@@ -35,7 +35,22 @@ function runAllTests() {
     test_planUpsert_empty,
     test_planUpsert_updateAndInsert,
     test_planUpsert_compositeAndRepeat,
-    test_columnLetter
+    test_columnLetter,
+    // Tests_Config.gs
+    test_buildConfig_valid,
+    test_buildConfig_tabProblems,
+    test_buildConfig_variantErrors,
+    test_buildConfig_assignmentErrors,
+    test_buildConfig_warnings,
+    test_parseMappingCell,
+    test_problemsFor_scoped,
+    test_attachSourceValues,
+    test_selectDatasetBlock,
+    test_buildConfig_optionalTitleColumn,
+    test_checkInputColumns,
+    test_findRecord,
+    test_buildRecordPayload,
+    test_mapRecordOutputs
   ];
   let passed = 0;
   const failures = [];
