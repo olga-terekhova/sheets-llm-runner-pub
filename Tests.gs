@@ -50,7 +50,13 @@ function runAllTests() {
     test_checkInputColumns,
     test_findRecord,
     test_buildRecordPayload,
-    test_mapRecordOutputs
+    test_mapRecordOutputs,
+    // Tests_Results.gs
+    test_buildRowOutcome_ok,
+    test_buildRowOutcome_warning,
+    test_buildRowOutcome_errors,
+    test_planAppend,
+    test_escapeCellValue
   ];
   let passed = 0;
   const failures = [];

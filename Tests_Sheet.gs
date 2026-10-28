@@ -11,8 +11,10 @@ const SCRATCH_TAB = '_scratch_test';
 
 function testSheetUtils() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const old = ss.getSheetByName(SCRATCH_TAB);
-  if (old) ss.deleteSheet(old);
+  [SCRATCH_TAB, SCRATCH_TAB + '_log'].forEach(function (name) {
+    const old = ss.getSheetByName(name);
+    if (old) ss.deleteSheet(old);
+  });
 
   const keys = ['_dataset_id', '_row_key', '_variant_id'];
   try {
@@ -43,12 +45,31 @@ function testSheetUtils() {
     const row3 = t.rows[idx[makeKey({ _dataset_id: 'ds1', _row_key: 1, _variant_id: 'v2' }, keys)]];
     assertEqual_([row3._status, row3.Website, row3['HQ City']], ['error', 'shopify.com', ''], 'new variant row');
 
+    // 4. Text that looks like a formula or a number survives as text, also on later rewrites.
+    upsertRows(sheet, keys, [{ _dataset_id: 'ds1', _row_key: '007', _variant_id: 'v1', Phone: '+1 555 0100' }]);
+    upsertRows(sheet, keys, [{ _dataset_id: 'ds1', _row_key: 1, _variant_id: 'v1', _status: 'ok' }]);
+    const t2 = readTable(sheet);
+    const row7 = t2.rows[indexByKey(t2, keys, SCRATCH_TAB)[makeKey({ _dataset_id: 'ds1', _row_key: '007', _variant_id: 'v1' }, keys)]];
+    assertEqual_([row7._row_key, row7.Phone], ['007', '+1 555 0100'], 'escaped values read back');
+
+    // 5. Append below the header, adding a column; then grow past the sheet's row count.
+    const log = getOrCreateSheet(SCRATCH_TAB + '_log', ['a', 'b']);
+    let ap = appendRows(log, [{ a: 1, b: '=x' }, { a: 2, c: 'new' }]);
+    assertEqual_([ap.appended, ap.addedColumns], [2, ['c']], 'first append');
+    const many = [];
+    for (let i = 0; i < log.getMaxRows(); i++) many.push({ a: i });
+    ap = appendRows(log, many);
+    const lt = readTable(log);
+    assertEqual_([lt.headers, lt.rows.length, lt.rows[0].b, lt.rows[1].c], [['a', 'b', 'c'], many.length + 2, '=x', 'new'], 'appended rows');
+
     Logger.log('testSheetUtils: PASS');
   } catch (e) {
     Logger.log('testSheetUtils: FAIL ' + (e && e.message ? e.message : e));
     throw e;
   } finally {
-    const s = ss.getSheetByName(SCRATCH_TAB);
-    if (s) ss.deleteSheet(s);
+    [SCRATCH_TAB, SCRATCH_TAB + '_log'].forEach(function (name) {
+      const s = ss.getSheetByName(name);
+      if (s) ss.deleteSheet(s);
+    });
   }
 }

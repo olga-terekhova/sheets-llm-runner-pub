@@ -1,7 +1,7 @@
 /**
- * Run.gs - M4 entry points: create the config tabs, validate the config,
- * and run one source row by key. Results only go to the Execution log;
- * writing the Results and Log tabs comes in M5.
+ * Run.gs - editor entry points: create the config tabs, validate the
+ * config, and run one source row by key. runOne writes the outcome to the
+ * Results tab (upsert) and the Log tab (append); see Results.gs.
  *
  * In the editor:
  *   1. Run setupConfigTabs once, then fill in Datasets, Variants, Assignments.
@@ -71,7 +71,17 @@ function runOne() {
  * @return {{ctx: Object, record: Object, rowNumber: number, rowKey: string, payload: Object}}
  */
 function prepareRow(assignmentId, rowKey) {
-  const ctx = loadRunContext(assignmentId);
+  return prepareRecord(loadRunContext(assignmentId), rowKey);
+}
+
+/**
+ * Find the source row in a loaded run context and build its payload.
+ * Throws if the key is not found or a placeholder has no value.
+ * @param {Object} ctx from loadRunContext
+ * @param {*} rowKey
+ * @return {{ctx: Object, record: Object, rowNumber: number, rowKey: string, payload: Object}}
+ */
+function prepareRecord(ctx, rowKey) {
   const found = findRecord(ctx.dataset, rowKey);
   const payload = buildRecordPayload(found.record, ctx.variant, ctx.assignment);
   return { ctx: ctx, record: found.record, rowNumber: found.rowNumber, rowKey: found.rowKey, payload: payload };
@@ -89,37 +99,86 @@ function dryRunRow(assignmentId, rowKey) {
 }
 
 /**
- * Run one row against the live API and log the mapped outputs.
+ * Run one row against the live API, log the details, and write the
+ * outcome to the Results and Log tabs.
+ * Config problems throw; per-row problems end up in the Results row.
  * @param {string} assignmentId
  * @param {*} rowKey
- * @return {{prep: Object, result: Object, mapped: Object}} mapped is null on an HTTP error
+ * @return {{prep: Object, result: Object, mapped: Object, outcome: Object, written: Object}}
  */
 function runRow(assignmentId, rowKey) {
-  const prep = prepareRow(assignmentId, rowKey);
-  logPrepared_('runRow', prep);
+  const ctx = loadRunContext(assignmentId);
+  const run = processRow(ctx, rowKey, newJobId_());
+  logRun_('runRow', ctx, run);
+  run.written = writeRowOutcomes([run.outcome]);
+  Logger.log('Wrote ' + RESULTS_TAB + ' (' + run.written.inserted + ' inserted, ' + run.written.updated + ' updated' +
+    (run.written.addedColumns.length ? ', new columns: ' + run.written.addedColumns.join(', ') : '') + '), ' +
+    run.written.logged + ' ' + LOG_TAB + ' row(s)');
+  return run;
+}
 
-  const result = sendAgentRequest(prep.payload);
-  Logger.log('HTTP ' + result.code + ' in ' + result.elapsedMs + ' ms');
-  if (!result.ok || !result.json) {
-    Logger.log('Error body: ' + truncate_(result.body, 3000));
-    return { prep: prep, result: result, mapped: null };
+/**
+ * Prepare, call and map one row, and build its outcome (buildRowOutcome).
+ * Does not write anything. An empty or unknown key throws (no Results row
+ * for a typo). A placeholder without a value, an HTTP error or a fetch
+ * exception is reported in the outcome instead of thrown, so a batch can
+ * go on with the next row.
+ * @param {Object} ctx from loadRunContext
+ * @param {*} rowKey
+ * @param {string} jobId
+ * @return {{prep: Object, result: Object, mapped: Object, outcome: Object}}
+ *   prep, result and mapped are null when that step was not reached
+ */
+function processRow(ctx, rowKey, jobId) {
+  const found = findRecord(ctx.dataset, rowKey);
+  const info = { assignment: ctx.assignment, rowKey: found.rowKey, jobId: jobId, runAt: new Date() };
+  const run = { prep: null, result: null, mapped: null, outcome: null };
+
+  try {
+    run.prep = prepareRecord(ctx, rowKey);
+    info.model = run.prep.payload.model;
+    info.called = true;
+    const t0 = Date.now();
+    try {
+      run.result = sendAgentRequest(run.prep.payload);
+    } catch (e) {
+      info.elapsedMs = Date.now() - t0;
+      throw e;
+    }
+    if (run.result.ok && run.result.json) run.mapped = mapRecordOutputs(run.result.json, ctx.assignment);
+  } catch (e) {
+    info.error = e && e.message ? e.message : String(e);
   }
 
-  const mapped = mapRecordOutputs(result.json, prep.ctx.assignment);
-  Logger.log('Usage: ' + JSON.stringify(extractUsage(result.json)));
-  if (mapped.envelope.output_json_error) {
-    Logger.log('Model JSON not parsed: ' + mapped.envelope.output_json_error);
-    Logger.log('Output text: ' + truncate_(mapped.envelope.output_text, 3000));
-  }
-  Logger.log('Mapped output: ' + JSON.stringify(mapped.values));
-  if (mapped.missing.length) Logger.log('Missing paths: ' + mapped.missing.join(', '));
-  return { prep: prep, result: result, mapped: mapped };
+  info.result = run.result;
+  info.mapped = run.mapped;
+  run.outcome = buildRowOutcome(info);
+  return run;
 }
 
 function checkRunConstants_() {
   if (!RUN_ASSIGNMENT_ID || RUN_ROW_KEY === '') {
     throw new Error('Set RUN_ASSIGNMENT_ID and RUN_ROW_KEY at the top of Run.gs');
   }
+}
+
+function logRun_(label, ctx, run) {
+  if (run.prep) logPrepared_(label, run.prep);
+  else Logger.log('=== ' + label + ': assignment ' + ctx.assignment.id + ', key ' + run.outcome.resultRow._row_key + ' (not prepared) ===');
+  const result = run.result;
+  if (result) {
+    Logger.log('HTTP ' + result.code + ' in ' + result.elapsedMs + ' ms');
+    if (!result.ok || !result.json) Logger.log('Error body: ' + truncate_(String(result.body || ''), 3000));
+    else Logger.log('Usage: ' + JSON.stringify(extractUsage(result.json)));
+  }
+  const mapped = run.mapped;
+  if (mapped) {
+    if (mapped.envelope.output_json_error) Logger.log('Output text: ' + truncate_(mapped.envelope.output_text, 3000));
+    Logger.log('Mapped output: ' + JSON.stringify(mapped.values));
+  }
+  const o = run.outcome;
+  Logger.log('Status: ' + o.status + (o.error ? ' - ' + o.error : '') +
+    (o.resultRow._missing_paths ? ' (missing paths: ' + o.resultRow._missing_paths + ')' : ''));
 }
 
 function logPrepared_(label, prep) {

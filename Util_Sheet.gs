@@ -175,6 +175,60 @@ function planUpsert(values, keyColumns, newRows, label) {
 }
 
 /**
+ * Plan an append below an existing header row. Pure.
+ * Column names in the rows that are not in the header are appended to it.
+ *
+ * @param {Array<*>} headerRow existing row 1 ([] for an empty sheet)
+ * @param {Array<Object>} rows
+ * @return {{headers: Array<string>, values: Array<Array<*>>, addedColumns: Array<string>}}
+ *   values holds only the new data rows, each as wide as headers
+ */
+function planAppend(headerRow, rows) {
+  const headers = (headerRow || []).map(function (h) { return String(h === null || h === undefined ? '' : h).trim(); });
+  while (headers.length && headers[headers.length - 1] === '') headers.pop();
+  const addedColumns = [];
+  (rows || []).forEach(function (row) {
+    Object.keys(row).forEach(function (name) {
+      if (headers.indexOf(name) === -1) { headers.push(name); addedColumns.push(name); }
+    });
+  });
+  const values = (rows || []).map(function (row) {
+    return headers.map(function (h) { return Object.prototype.hasOwnProperty.call(row, h) ? row[h] : ''; });
+  });
+  return { headers: headers, values: values, addedColumns: addedColumns };
+}
+
+/**
+ * Make a value safe for setValues, which parses strings as if typed.
+ * A string starting with = + - @ would become a formula, so it gets the
+ * leading apostrophe that tells Sheets to store it as text (the apostrophe
+ * is not part of the stored value). With forceText every non-empty string
+ * gets it, so key cells such as "007" are not turned into numbers.
+ * @param {*} v
+ * @param {boolean=} forceText
+ * @return {*}
+ */
+function escapeCellValue_(v, forceText) {
+  if (typeof v !== 'string' || v === '') return v;
+  if (forceText || /^[=+\-@]/.test(v)) return "'" + v;
+  return v;
+}
+
+/**
+ * Escape a 2D array (row 1 = headers) for setValues. Data cells in columns
+ * named in textColumns are forced to text.
+ * @param {Array<Array<*>>} values
+ * @param {Array<string>=} textColumns
+ * @return {Array<Array<*>>} new array
+ */
+function escapeValuesForWrite_(values, textColumns) {
+  const force = (values.length ? values[0] : []).map(function (h) { return (textColumns || []).indexOf(h) !== -1; });
+  return values.map(function (row, r) {
+    return row.map(function (v, c) { return escapeCellValue_(v, r > 0 && force[c]); });
+  });
+}
+
+/**
  * Convert a 1-based column number to letters (1 -> A, 27 -> AA).
  * @param {number} n
  * @return {string}
@@ -258,7 +312,8 @@ function readTable(sheetOrName) {
 /**
  * Upsert row objects into a tab by key: one read, one write.
  * The whole data block is rewritten, so this is meant for tabs the script
- * owns (Results, Log), not for tabs with formulas.
+ * owns (Results), not for tabs with formulas. Strings are escaped so they
+ * are stored as text (see escapeCellValue_); key cells are always text.
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet|string} sheetOrName
  * @param {Array<string>|string} keyColumns
@@ -272,7 +327,38 @@ function upsertRows(sheetOrName, keyColumns, rows) {
   const plan = planUpsert(readValues_(sheet), keyColumns, rows, sheet.getName());
   const height = plan.values.length;
   const width = plan.values[0].length;
-  if (sheet.getMaxColumns() < width) sheet.insertColumnsAfter(sheet.getMaxColumns(), width - sheet.getMaxColumns());
-  sheet.getRange(1, 1, height, width).setValues(plan.values);
+  ensureSheetSize_(sheet, height, width);
+  sheet.getRange(1, 1, height, width).setValues(escapeValuesForWrite_(plan.values, toArray_(keyColumns)));
   return { inserted: plan.inserted, updated: plan.updated, addedColumns: plan.addedColumns };
+}
+
+/**
+ * Append row objects below the last row of a tab. Reads only the header
+ * row; writes the header (when columns were added) and the new rows.
+ * Strings are escaped so they are stored as text (see escapeCellValue_).
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet|string} sheetOrName
+ * @param {Array<Object>} rows
+ * @return {{appended: number, addedColumns: Array<string>}}
+ */
+function appendRows(sheetOrName, rows) {
+  const sheet = typeof sheetOrName === 'string' ? getSheetOrThrow(sheetOrName) : sheetOrName;
+  if (!rows || rows.length === 0) return { appended: 0, addedColumns: [] };
+
+  const lastRow = sheet.getLastRow();
+  const headerRow = lastRow === 0 ? [] : sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const plan = planAppend(headerRow, rows);
+  const width = plan.headers.length;
+  const start = Math.max(lastRow, 1) + 1;
+  ensureSheetSize_(sheet, start + plan.values.length - 1, width);
+  if (plan.addedColumns.length) sheet.getRange(1, 1, 1, width).setValues(escapeValuesForWrite_([plan.headers]));
+  const body = escapeValuesForWrite_([plan.headers].concat(plan.values)).slice(1);
+  sheet.getRange(start, 1, body.length, width).setValues(body);
+  return { appended: body.length, addedColumns: plan.addedColumns };
+}
+
+/** Grow the sheet grid so rows x columns fit; getRange cannot reach past it. */
+function ensureSheetSize_(sheet, rows, columns) {
+  if (sheet.getMaxRows() < rows) sheet.insertRowsAfter(sheet.getMaxRows(), rows - sheet.getMaxRows());
+  if (sheet.getMaxColumns() < columns) sheet.insertColumnsAfter(sheet.getMaxColumns(), columns - sheet.getMaxColumns());
 }
