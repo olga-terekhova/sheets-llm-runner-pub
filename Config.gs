@@ -3,9 +3,9 @@
  * Assignments) and the source tabs they point to.
  *
  * The logic lives in pure functions that take plain 2D arrays (buildConfig,
- * attachSourceValues, checkInputColumns, findRecord), so it can be tested
- * without a spreadsheet. loadConfig, loadConfigWithSources and
- * loadRunContext are thin wrappers that read the sheets.
+ * attachSourceValues, checkBlockOverlaps, checkInputColumns, findRecord), so
+ * it can be tested without a spreadsheet. loadConfig, loadConfigWithSources
+ * and loadRunContext are thin wrappers that read the sheets.
  *
  * Problems are collected, not thrown, so one validation run reports all of
  * them. Each entry (dataset, variant, assignment) keeps its own errors and
@@ -23,7 +23,7 @@ const CONFIG_TABS = {
 
 // The first column of each tab is the id column.
 const CONFIG_COLUMNS = {
-  datasets: ['dataset_id', 'tab_name', 'key_column', 'dataset_title'],
+  datasets: ['dataset_id', 'tab_name', 'key_column', 'dataset_title', 'default_assignment'],
   variants: ['variant_id', 'model', 'prompt_template', 'instructions_template',
     'tools', 'max_urls', 'max_steps', 'output_json_schema'],
   assignments: ['assignment_id', 'dataset_id', 'variant_id', 'input_mapping', 'output_mapping']
@@ -31,7 +31,7 @@ const CONFIG_COLUMNS = {
 
 // Columns that may be absent from a config tab (treated as empty cells).
 const CONFIG_OPTIONAL_COLUMNS = {
-  datasets: ['dataset_title'],
+  datasets: ['dataset_title', 'default_assignment'],
   variants: [],
   assignments: []
 };
@@ -49,7 +49,8 @@ const PLACEHOLDER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * a null value means the tab does not exist.
  *
  * Returns:
- *   datasets     { id: {id, rowNumber, where, tabName, keyColumn, title, errors, warnings} }
+ *   datasets     { id: {id, rowNumber, where, tabName, keyColumn, title,
+ *                  defaultAssignment, errors, warnings} }
  *   variants     { id: {id, rowNumber, where, model, promptTemplate,
  *                  instructionsTemplate, tools, maxUrls, maxSteps, schema,
  *                  schemaName, errors, warnings} }
@@ -72,6 +73,10 @@ function buildConfig(valuesByTab) {
   Object.keys(config.assignments).forEach(function (id) {
     linkAssignment_(config.assignments[id], config);
   });
+  Object.keys(config.datasets).forEach(function (id) {
+    linkDefaultAssignment_(config.datasets[id], config);
+  });
+  checkDatasetTitles_(config);
   return config;
 }
 
@@ -137,6 +142,32 @@ function attachSourceValues(dataset, values) {
     dataset.index = null;
     fail_(dataset, e.message);
   }
+}
+
+/**
+ * Flag datasets on the same tab that resolved to the same block. A block
+ * runs up to the next empty-key row, so two blocks are either the same or
+ * disjoint, and comparing the first row is enough. This happens e.g. when
+ * two headings are adjacent with no data rows between them. Needs
+ * attachSourceValues to have run; datasets without a table are ignored.
+ *
+ * @param {Array<Object>} datasets dataset entries
+ */
+function checkBlockOverlaps(datasets) {
+  const seen = {};
+  datasets.forEach(function (d) {
+    if (!d || !d.table) return;
+    const rows = d.table.rowNumbers;
+    const at = d.tabName + '\u001f' + rows[0];
+    if (!hasOwn_(seen, at)) {
+      seen[at] = d;
+      return;
+    }
+    const other = seen[at];
+    const range = 'rows ' + rows[0] + '-' + rows[rows.length - 1] + ' of tab "' + d.tabName + '"';
+    fail_(d, 'selects the same rows as dataset "' + other.id + '" (' + range + ')');
+    fail_(other, 'selects the same rows as dataset "' + d.id + '" (' + range + ')');
+  });
 }
 
 /**
@@ -331,6 +362,7 @@ function parseDatasetRow_(row, d) {
   d.tabName = cellText_(row.tab_name);
   d.keyColumn = cellText_(row.key_column);
   d.title = cellText_(row.dataset_title);
+  d.defaultAssignment = cellText_(row.default_assignment);
   if (!d.tabName) fail_(d, 'tab_name is empty');
   if (!d.keyColumn) fail_(d, 'key_column is empty');
 }
@@ -456,6 +488,51 @@ function linkAssignment_(a, config) {
   }
 }
 
+/** default_assignment, if set, must name an assignment of this dataset. */
+function linkDefaultAssignment_(d, config) {
+  if (!d.defaultAssignment) return;
+  const a = config.assignments[d.defaultAssignment];
+  if (!a) {
+    fail_(d, 'default_assignment "' + d.defaultAssignment + '" not found in ' + CONFIG_TABS.assignments);
+  } else if (a.datasetId !== d.id) {
+    fail_(d, 'default_assignment "' + a.id + '" belongs to dataset "' + a.datasetId + '", not "' + d.id + '"');
+  }
+}
+
+/**
+ * Datasets sharing a tab: each needs a dataset_title, unique within the tab.
+ * An empty title is allowed only for the only dataset on its tab.
+ */
+function checkDatasetTitles_(config) {
+  const byTab = {};
+  Object.keys(config.datasets).forEach(function (id) {
+    const d = config.datasets[id];
+    if (!d.tabName) return;
+    if (!hasOwn_(byTab, d.tabName)) byTab[d.tabName] = [];
+    byTab[d.tabName].push(d);
+  });
+  Object.keys(byTab).forEach(function (tab) {
+    const group = byTab[tab];
+    if (group.length < 2) return;
+    const ids = group.map(function (d) { return d.id; }).join(', ');
+    const byTitle = {};
+    group.forEach(function (d) {
+      if (!d.title) {
+        fail_(d, 'dataset_title is empty, but tab "' + tab + '" holds ' + group.length +
+          ' datasets (' + ids + '); each needs a title');
+        return;
+      }
+      if (!hasOwn_(byTitle, d.title)) byTitle[d.title] = [];
+      byTitle[d.title].push(d.id);
+    });
+    group.forEach(function (d) {
+      const same = d.title ? byTitle[d.title] : [];
+      if (same.length < 2) return;
+      fail_(d, 'dataset_title "' + d.title + '" is not unique in tab "' + tab + '" (datasets: ' + same.join(', ') + ')');
+    });
+  });
+}
+
 /**
  * Walk path segments through a JSON schema. Returns a message when a key is
  * not among the declared properties, '' when it is found or when the schema
@@ -544,6 +621,7 @@ function loadConfigWithSources() {
     if (!hasOwn_(valuesByTab, d.tabName)) valuesByTab[d.tabName] = readTabValues_(d.tabName);
     attachSourceValues(d, valuesByTab[d.tabName]);
   });
+  checkBlockOverlaps(Object.keys(config.datasets).map(function (id) { return config.datasets[id]; }));
   Object.keys(config.assignments).forEach(function (id) {
     const a = config.assignments[id];
     const d = config.datasets[a.datasetId];
@@ -569,7 +647,12 @@ function loadRunContext(assignmentId) {
   }
   const dataset = config.datasets[assignment.datasetId];
   if (dataset && !dataset.errors.length) {
-    attachSourceValues(dataset, readTabValues_(dataset.tabName));
+    // Attach every dataset on the tab, so the overlap check can see them all.
+    const values = readTabValues_(dataset.tabName);
+    const sameTab = Object.keys(config.datasets).map(function (k) { return config.datasets[k]; })
+      .filter(function (d) { return d.tabName === dataset.tabName && !d.errors.length; });
+    sameTab.forEach(function (d) { attachSourceValues(d, values); });
+    checkBlockOverlaps(sameTab);
     checkInputColumns(assignment, dataset);
   }
   const problems = problemsFor(config, assignment);
@@ -583,4 +666,28 @@ function loadRunContext(assignmentId) {
     dataset: dataset,
     warnings: problems.warnings
   };
+}
+
+/**
+ * Load everything needed to resolve a selection on one source tab: the
+ * config, every dataset on the tab (blocks attached, overlap checked) and
+ * the whole tab as a table. Reads the tab once. Throws if no dataset uses
+ * the tab. Problems are left in the entries for planSelectionRun.
+ *
+ * @param {string} tabName
+ * @return {{config: Object, datasets: Array<Object>, table: Object}}
+ */
+function loadSelectionContext(tabName) {
+  const config = loadConfig();
+  const datasets = Object.keys(config.datasets).map(function (id) { return config.datasets[id]; })
+    .filter(function (d) { return d.tabName === tabName; });
+  if (!datasets.length) {
+    const extra = config.errors.length ? '\n- ' + config.errors.join('\n- ') : '';
+    throw new Error('Tab "' + tabName + '" is not a source tab: no row in ' + CONFIG_TABS.datasets +
+      ' has tab_name "' + tabName + '"' + extra);
+  }
+  const values = readTabValues_(tabName);
+  datasets.forEach(function (d) { if (!d.errors.length) attachSourceValues(d, values); });
+  checkBlockOverlaps(datasets);
+  return { config: config, datasets: datasets, table: tableFromValues(values, tabName) };
 }

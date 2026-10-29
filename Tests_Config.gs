@@ -16,7 +16,7 @@ function sampleConfigValues_() {
   return {
     datasets: [
       CONFIG_COLUMNS.datasets,
-      ['companies', 'Companies', 'ID', '']
+      ['companies', 'Companies', 'ID', '', 'a1']
     ],
     variants: [
       CONFIG_COLUMNS.variants,
@@ -230,7 +230,65 @@ function test_buildConfig_optionalTitleColumn() {
   const vals = sampleConfigValues_();
   vals.datasets = [['dataset_id', 'tab_name', 'key_column'], ['companies', 'Companies', 'ID']];
   const c = buildConfig(vals);
-  assertEqual_([listProblems(c).errors, c.datasets.companies.title], [[], ''], 'dataset_title column may be absent');
+  assertEqual_([listProblems(c).errors, c.datasets.companies.title, c.datasets.companies.defaultAssignment],
+    [[], '', ''], 'dataset_title and default_assignment columns may be absent');
+}
+
+function test_buildConfig_defaultAssignment() {
+  assertEqual_(buildConfig(sampleConfigValues_()).datasets.companies.defaultAssignment, 'a1', 'parsed');
+
+  const unknown = withCell_(sampleConfigValues_().datasets, 1, 'default_assignment', 'nope');
+  const vals = sampleConfigValues_();
+  vals.datasets = unknown;
+  assertHas_(buildConfig(vals).datasets.companies.errors,
+    'Datasets row 2 (companies): default_assignment "nope" not found in Assignments', 'unknown assignment');
+
+  const other = sampleConfigValues_();
+  other.datasets.push(['people', 'People', 'ID', '', 'a1']);
+  const c = buildConfig(other);
+  assertHas_(c.datasets.people.errors, 'default_assignment "a1" belongs to dataset "companies", not "people"', 'wrong dataset');
+  assertEqual_(c.datasets.companies.errors, [], 'the owning dataset is fine');
+}
+
+function test_buildConfig_datasetTitles() {
+  function datasetsWith(rows) {
+    const vals = sampleConfigValues_();
+    vals.datasets = [CONFIG_COLUMNS.datasets].concat(rows);
+    return buildConfig(vals).datasets;
+  }
+  const ok = datasetsWith([['ca', 'Src', 'ID', 'CA', ''], ['us', 'Src', 'ID', 'US', ''], ['solo', 'Other', 'ID', '', '']]);
+  assertEqual_([ok.ca.errors, ok.us.errors, ok.solo.errors], [[], [], []], 'titled on a shared tab, untitled alone');
+
+  const untitled = datasetsWith([['ca', 'Src', 'ID', '', ''], ['us', 'Src', 'ID', 'US', '']]);
+  assertHas_(untitled.ca.errors, 'dataset_title is empty, but tab "Src" holds 2 datasets (ca, us); each needs a title', 'untitled shared');
+  assertEqual_(untitled.us.errors, [], 'the titled one is fine');
+
+  const dup = datasetsWith([['ca', 'Src', 'ID', 'X', ''], ['us', 'Src', 'ID', 'X', ''], ['x2', 'Other', 'ID', 'X', '']]);
+  assertHas_(dup.ca.errors, 'dataset_title "X" is not unique in tab "Src" (datasets: ca, us)', 'duplicate title');
+  assertHas_(dup.us.errors, 'is not unique', 'reported on both');
+  assertEqual_(dup.x2.errors, [], 'same title on another tab is fine');
+}
+
+function test_checkBlockOverlaps() {
+  function datasetOn(id, title, values) {
+    const vals = sampleConfigValues_();
+    vals.datasets = [CONFIG_COLUMNS.datasets, [id, 'Src', 'ID', title, '']];
+    const d = buildConfig(vals).datasets[id];
+    attachSourceValues(d, values);
+    return d;
+  }
+  // Heading A has no data rows, so A runs on into B's block.
+  const adjacent = [['ID', 'Title'], ['', 'A'], ['', 'B'], [1, ''], [2, '']];
+  const a = datasetOn('a', 'A', adjacent);
+  const b = datasetOn('b', 'B', adjacent);
+  checkBlockOverlaps([a, b]);
+  assertHas_(a.errors, 'selects the same rows as dataset "b" (rows 4-5 of tab "Src")', 'overlap on a');
+  assertHas_(b.errors, 'selects the same rows as dataset "a"', 'overlap on b');
+
+  const ca = datasetOn('ca', '', sampleSourceValues_());
+  const us = datasetOn('us', 'US companies', sampleSourceValues_());
+  checkBlockOverlaps([ca, us, null]);
+  assertEqual_([ca.errors, us.errors], [[], []], 'separate blocks');
 }
 
 function test_checkInputColumns() {

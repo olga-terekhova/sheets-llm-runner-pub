@@ -15,5 +15,5 @@ const sheets={};
 const ss={getSheetByName:n=>sheets[n]||null,insertSheet:n=>(sheets[n]=new Sheet(n)),deleteSheet:s=>{delete sheets[s.n]}};
 const ctx={Logger:{log:s=>console.log(s)},SpreadsheetApp:{getActiveSpreadsheet:()=>ss},console};
 vm.createContext(ctx);
-for(const f of ['Util_Json.gs','Util_Template.gs','Api.gs','Util_Sheet.gs','Config.gs','Pipeline.gs','Results.gs','Run.gs','Tests.gs','Tests_Sheet.gs','Tests_Config.gs','Tests_Results.gs']) vm.runInContext(fs.readFileSync(f,'utf8'),ctx,{filename:f});
+for(const f of ['Util_Json.gs','Util_Template.gs','Api.gs','Util_Sheet.gs','Config.gs','Selection.gs','Pipeline.gs','Results.gs','Run.gs','Menu.gs','Tests.gs','Tests_Sheet.gs','Tests_Config.gs','Tests_Results.gs','Tests_Selection.gs']) vm.runInContext(fs.readFileSync(f,'utf8'),ctx,{filename:f});
 vm.runInContext('runAllTests(); testSheetUtils();',ctx);

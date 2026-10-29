@@ -30,25 +30,29 @@ function setupConfigTabs() {
 /**
  * Validate the config tabs and every source tab they reference.
  * Logs every error and warning. No API calls.
- * @return {{errors: Array<string>, warnings: Array<string>}}
+ * @return {{errors: Array<string>, warnings: Array<string>, lines: Array<string>}}
+ *   lines: the logged report, also shown by the menu
  */
 function validateConfig() {
   const config = loadConfigWithSources();
   const problems = listProblems(config);
-  Logger.log('Loaded ' + Object.keys(config.datasets).length + ' dataset(s), ' +
+  const lines = ['Loaded ' + Object.keys(config.datasets).length + ' dataset(s), ' +
     Object.keys(config.variants).length + ' variant(s), ' +
-    Object.keys(config.assignments).length + ' assignment(s)');
+    Object.keys(config.assignments).length + ' assignment(s)'];
   Object.keys(config.datasets).forEach(function (id) {
     const d = config.datasets[id];
     if (!d.table) return;
     const rows = d.table.rowNumbers;
-    Logger.log('Dataset ' + id + ': tab "' + d.tabName + '"' + (d.title ? ', title "' + d.title + '"' : '') +
+    lines.push('Dataset ' + id + ': tab "' + d.tabName + '"' + (d.title ? ', title "' + d.title + '"' : '') +
+      ', default assignment ' + (d.defaultAssignment ? '"' + d.defaultAssignment + '"' : '(none)') +
       ', rows ' + rows[0] + '-' + rows[rows.length - 1] + ' (' + rows.length + ' rows)');
   });
-  problems.errors.forEach(function (e) { Logger.log('ERROR ' + e); });
-  problems.warnings.forEach(function (w) { Logger.log('WARN ' + w); });
-  Logger.log(problems.errors.length ? problems.errors.length + ' error(s), ' + problems.warnings.length + ' warning(s)'
+  problems.errors.forEach(function (e) { lines.push('ERROR ' + e); });
+  problems.warnings.forEach(function (w) { lines.push('WARN ' + w); });
+  lines.push(problems.errors.length ? problems.errors.length + ' error(s), ' + problems.warnings.length + ' warning(s)'
     : 'No errors, ' + problems.warnings.length + ' warning(s)');
+  lines.forEach(function (l) { Logger.log(l); });
+  problems.lines = lines;
   return problems;
 }
 
