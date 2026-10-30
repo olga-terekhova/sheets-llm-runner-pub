@@ -8,7 +8,7 @@
  *   2. Check the config of every involved assignment; any error stops the
  *      run before the first billed call.
  *   3. More than CONFIRM_ABOVE_ROWS rows: OK/Cancel. More than
- *      MAX_SELECTION_ROWS: refused (until chunking in M7).
+ *      MAX_SELECTION_ROWS: refused (until chunking is built).
  *   4. Rows run one by one; Results and Log are written after each row, so
  *      a stopped run keeps what was done. No new row is started after
  *      RUN_TIME_BUDGET_MS (Apps Script stops an execution at about 6 min).
@@ -19,7 +19,7 @@
 
 const MENU_NAME = 'LLM Runner';
 const CONFIRM_ABOVE_ROWS = 5;
-const MAX_SELECTION_ROWS = 30;
+const MAX_SELECTION_ROWS = 100;
 const RUN_TIME_BUDGET_MS = 4.5 * 60 * 1000;
 const DIALOG_MAX_LINES = 25;
 
