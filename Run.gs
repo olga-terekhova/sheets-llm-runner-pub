@@ -1,21 +1,19 @@
 /**
- * Run.gs - editor entry points: create the config tabs, validate the
- * config, and run one source row by key. runOne writes the outcome to the
- * Results tab (upsert) and the Log tab (append); see Results.gs.
+ * Run.gs - entry points: create the config tabs, validate the config, and
+ * run one source row by key. runRow writes the outcome to the Results tab
+ * (upsert) and the Log tab (append); see Results.gs.
  *
- * In the editor:
+ * These need a spreadsheet, so run them from the bound script's editor
+ * through its wrappers (bound/Code.gs), not from the library project:
  *   1. Run setupConfigTabs once, then fill in Datasets, Variants, Assignments.
  *   2. Run validateConfig and fix any ERROR lines.
- *   3. Set RUN_ASSIGNMENT_ID and RUN_ROW_KEY below.
+ *   3. Set RUN_ASSIGNMENT_ID and RUN_ROW_KEY in the bound script.
  *   4. Run dryRunOne (no API call), then runOne (one live, billed call).
  */
 
-const RUN_ASSIGNMENT_ID = '';
-const RUN_ROW_KEY = '';
-
 /** Create any missing config tabs with their header row. Existing tabs are left alone. */
 function setupConfigTabs() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   Object.keys(CONFIG_TABS).forEach(function (kind) {
     const name = CONFIG_TABS[kind];
     if (ss.getSheetByName(name)) {
@@ -54,18 +52,6 @@ function validateConfig() {
   lines.forEach(function (l) { Logger.log(l); });
   problems.lines = lines;
   return problems;
-}
-
-/** Editor entry point: dryRunRow with the constants above. */
-function dryRunOne() {
-  checkRunConstants_();
-  return dryRunRow(RUN_ASSIGNMENT_ID, RUN_ROW_KEY);
-}
-
-/** Editor entry point: runRow with the constants above. Makes one billed call. */
-function runOne() {
-  checkRunConstants_();
-  return runRow(RUN_ASSIGNMENT_ID, RUN_ROW_KEY);
 }
 
 /**
@@ -158,12 +144,6 @@ function processRow(ctx, rowKey, jobId) {
   info.mapped = run.mapped;
   run.outcome = buildRowOutcome(info);
   return run;
-}
-
-function checkRunConstants_() {
-  if (!RUN_ASSIGNMENT_ID || RUN_ROW_KEY === '') {
-    throw new Error('Set RUN_ASSIGNMENT_ID and RUN_ROW_KEY at the top of Run.gs');
-  }
 }
 
 function logRun_(label, ctx, run) {

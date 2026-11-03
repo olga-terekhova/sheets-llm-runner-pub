@@ -593,7 +593,7 @@ function hasOwn_(obj, key) {
 
 /** Read a tab's values by name, or null if the tab does not exist. */
 function readTabValues_(name) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  const sheet = getSpreadsheet_().getSheetByName(name);
   return sheet ? readValues_(sheet) : null;
 }
 

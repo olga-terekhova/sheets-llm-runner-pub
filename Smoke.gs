@@ -2,7 +2,9 @@
  * Smoke.gs - M0 live API checks. Each run makes a real, billed API call.
  *
  * Before running:
- *   1. Project Settings > Script properties > add PERPLEXITY_API_KEY.
+ *   1. In the library project: Project Settings > Script properties >
+ *      add PERPLEXITY_API_KEY. Run these from the library editor (no
+ *      spreadsheet needed).
  *   2. Set SMOKE_MODEL to a model from the Agent API model list:
  *      https://docs.perplexity.ai/docs/agent-api/models
  *

@@ -13,14 +13,16 @@ const PPLX_ALLOWED_TOOLS = ['web_search', 'fetch_url'];
 
 /**
  * Read the API key from Script Properties.
- * Set it once in: Project Settings > Script properties > Add property.
+ * Set it once in the library project (not in a spreadsheet's bound
+ * script): Project Settings > Script properties > Add property. A library
+ * reads its own Script Properties, so every spreadsheet shares the key.
  * @return {string}
  */
 function getApiKey_() {
   const key = PropertiesService.getScriptProperties().getProperty(PPLX_KEY_PROPERTY);
   if (!key) {
     throw new Error('Missing script property ' + PPLX_KEY_PROPERTY +
-      '. Add it in Project Settings > Script properties.');
+      '. Add it in the library project: Project Settings > Script properties.');
   }
   return key;
 }

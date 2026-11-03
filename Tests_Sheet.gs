@@ -3,14 +3,15 @@
  * Creates a temporary tab, exercises readTable and upsertRows, checks the
  * results, and deletes the tab. No API calls.
  *
- * Run testSheetUtils from the editor. The first run asks for permission
+ * Run testSheetUtils from the bound script (its wrapper in bound/Code.gs),
+ * not from the library project. The first run asks for permission
  * to edit the spreadsheet.
  */
 
 const SCRATCH_TAB = '_scratch_test';
 
 function testSheetUtils() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   [SCRATCH_TAB, SCRATCH_TAB + '_log'].forEach(function (name) {
     const old = ss.getSheetByName(name);
     if (old) ss.deleteSheet(old);

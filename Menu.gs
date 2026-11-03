@@ -15,6 +15,10 @@
  *
  * The time budget counts from the menu click, because time spent in the
  * confirm dialog counts toward the execution limit too.
+ *
+ * The menu itself is created by onOpen in each spreadsheet's bound script
+ * (bound/Code.gs), because menu items must name functions of that script.
+ * Its one-line wrappers call menuProcessSelection and menuValidateConfig.
  */
 
 const MENU_NAME = 'LLM Runner';
@@ -22,13 +26,6 @@ const CONFIRM_ABOVE_ROWS = 5;
 const MAX_SELECTION_ROWS = 100;
 const RUN_TIME_BUDGET_MS = 4.5 * 60 * 1000;
 const DIALOG_MAX_LINES = 25;
-
-function onOpen() {
-  SpreadsheetApp.getUi().createMenu(MENU_NAME)
-    .addItem('Process selection', 'menuProcessSelection')
-    .addItem('Validate config', 'menuValidateConfig')
-    .addToUi();
-}
 
 function menuProcessSelection() {
   const started = Date.now();
@@ -59,7 +56,7 @@ function menuValidateConfig() {
 }
 
 function processSelection_(ui, started) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const sheet = ss.getActiveSheet();
   const rangeList = sheet.getActiveRangeList();
   const ranges = rangeList ? rangeList.getRanges().map(function (r) {

@@ -260,12 +260,26 @@ function toArray_(v) {
 /* ---------- sheet I/O wrappers ---------- */
 
 /**
+ * The spreadsheet the code runs for. Run from the library project's own
+ * editor there is none, so throw a clear error instead of failing on null.
+ * @return {GoogleAppsScript.Spreadsheet.Spreadsheet}
+ */
+function getSpreadsheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    throw new Error('No active spreadsheet. Run this from the spreadsheet (its menu or its bound script), ' +
+      'not from the library project.');
+  }
+  return ss;
+}
+
+/**
  * Get a tab by name or throw a clear error.
  * @param {string} name
  * @return {GoogleAppsScript.Spreadsheet.Sheet}
  */
 function getSheetOrThrow(name) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  const sheet = getSpreadsheet_().getSheetByName(name);
   if (!sheet) throw new Error('Tab "' + name + '" not found');
   return sheet;
 }
@@ -277,7 +291,7 @@ function getSheetOrThrow(name) {
  * @return {GoogleAppsScript.Spreadsheet.Sheet}
  */
 function getOrCreateSheet(name, headers) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   let sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);

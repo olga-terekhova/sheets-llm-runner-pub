@@ -17,3 +17,13 @@ const ctx={Logger:{log:s=>console.log(s)},SpreadsheetApp:{getActiveSpreadsheet:(
 vm.createContext(ctx);
 for(const f of ['Util_Json.gs','Util_Template.gs','Api.gs','Util_Sheet.gs','Config.gs','Selection.gs','Pipeline.gs','Results.gs','Run.gs','Menu.gs','Tests.gs','Tests_Sheet.gs','Tests_Config.gs','Tests_Results.gs','Tests_Selection.gs']) vm.runInContext(fs.readFileSync(f,'utf8'),ctx,{filename:f});
 vm.runInContext('runAllTests(); testSheetUtils();',ctx);
+// Bound script (bound/Code.gs) against the library: like Apps Script, the library shows only names without a trailing _.
+const lib={};for(const k of Object.keys(ctx))if(typeof ctx[k]==='function'&&!k.endsWith('_'))lib[k]=ctx[k];
+const items=[];const ui={createMenu:()=>({addItem(l,f){items.push(f);return this},addToUi(){}})};
+const bctx={LLMRunner:lib,SpreadsheetApp:{getUi:()=>ui,getActiveSpreadsheet:()=>ss},Logger:ctx.Logger,console};
+vm.createContext(bctx);const bsrc=fs.readFileSync('bound/Code.gs','utf8');vm.runInContext(bsrc,bctx,{filename:'bound/Code.gs'});
+bctx.onOpen();
+const bad=items.filter(f=>typeof bctx[f]!=='function').map(f=>'menu item '+f+' has no wrapper')
+ .concat([...bsrc.matchAll(/LLMRunner\.(\w+)/g)].map(m=>m[1]).filter(n=>!lib[n]).map(n=>'LLMRunner.'+n+' is not a public library function'));
+console.log('testSheetUtils through the bound script:');bctx.testSheetUtils();
+console.log(bad.length?'Bound script: FAIL\n'+bad.join('\n'):'Bound script: PASS ('+items.length+' menu items, '+new Set(bsrc.match(/LLMRunner\.\w+/g)).size+' library calls)');
