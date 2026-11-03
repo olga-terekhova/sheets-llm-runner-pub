@@ -12,7 +12,7 @@ const SCRATCH_TAB = '_scratch_test';
 
 function testSheetUtils() {
   const ss = getSpreadsheet_();
-  [SCRATCH_TAB, SCRATCH_TAB + '_log'].forEach(function (name) {
+  [SCRATCH_TAB, SCRATCH_TAB + '_log', SCRATCH_TAB + '_src'].forEach(function (name) {
     const old = ss.getSheetByName(name);
     if (old) ss.deleteSheet(old);
   });
@@ -63,12 +63,28 @@ function testSheetUtils() {
     const lt = readTable(log);
     assertEqual_([lt.headers, lt.rows.length, lt.rows[0].b, lt.rows[1].c], [['a', 'b', 'c'], many.length + 2, '=x', 'new'], 'appended rows');
 
+    // 6. Write back into a source-like tab: only mapped cells change; a column is added past the grid.
+    const src = getOrCreateSheet(SCRATCH_TAB + '_src', ['ID', 'Name', 'HQ']);
+    src.getRange(2, 1, 4, 3).setValues([['', 'meta', 'keep'], ["'007", 'A', 'old'], [8, 'B', ''], [9, 'C', 'c']]);
+    if (src.getMaxColumns() > 3) src.deleteColumns(4, src.getMaxColumns() - 3);
+    const wb = writeBackRows({ tabName: SCRATCH_TAB + '_src', keyColumn: 'ID', title: '' }, [
+      { rowKey: '007', values: { HQ: 'Ottawa', Phone: '+1 555' } },
+      { rowKey: 9, values: { Phone: '=x' } },
+      { rowKey: 99, values: { HQ: 'nope' } }
+    ]);
+    assertEqual_([wb.cells, wb.addedColumns, wb.notFound], [3, ['Phone'], ['99']], 'write-back counts');
+    const st = readTable(src);
+    assertEqual_(st.headers, ['ID', 'Name', 'HQ', 'Phone'], 'write-back header');
+    assertEqual_(st.rows.map(function (r) { return [r.ID, r.Name, r.HQ, r.Phone]; }),
+      [['', 'meta', 'keep', ''], ['007', 'A', 'Ottawa', '+1 555'], [8, 'B', '', ''], [9, 'C', 'c', '=x']],
+      'only mapped cells written, as text');
+
     Logger.log('testSheetUtils: PASS');
   } catch (e) {
     Logger.log('testSheetUtils: FAIL ' + (e && e.message ? e.message : e));
     throw e;
   } finally {
-    [SCRATCH_TAB, SCRATCH_TAB + '_log'].forEach(function (name) {
+    [SCRATCH_TAB, SCRATCH_TAB + '_log', SCRATCH_TAB + '_src'].forEach(function (name) {
       const s = ss.getSheetByName(name);
       if (s) ss.deleteSheet(s);
     });

@@ -9,7 +9,8 @@
  *      run before the first billed call.
  *   3. More than CONFIRM_ABOVE_ROWS rows: OK/Cancel. More than
  *      MAX_SELECTION_ROWS: refused (until chunking is built).
- *   4. Rows run one by one; Results and Log are written after each row, so
+ *   4. Rows run one by one; Log, Results and write-back cells (each per
+ *      its mapping) are written after each row, so
  *      a stopped run keeps what was done. No new row is started after
  *      RUN_TIME_BUDGET_MS (Apps Script stops an execution at about 6 min).
  *
@@ -30,7 +31,8 @@ const DIALOG_MAX_LINES = 25;
 function menuProcessSelection() {
   const started = Date.now();
   const ui = SpreadsheetApp.getUi();
-  // upsertRows rewrites the Results block, so two runs at once could lose rows.
+  // upsertRows rewrites the Results block, so two runs at once could lose rows;
+  // write-back finds source rows by key just before writing.
   const lock = LockService.getDocumentLock();
   if (!lock.tryLock(0)) {
     ui.alert(MENU_NAME, 'Another run is in progress. Wait for it to finish.', ui.ButtonSet.OK);
@@ -105,11 +107,12 @@ function processSelection_(ui, started) {
     ss.toast('Row ' + item.rowNumber + ' (' + (i + 1) + ' of ' + items.length + ')', MENU_NAME, 60);
     try {
       const run = processRow(plan.contexts[item.assignmentId], item.rowKey, jobId);
-      writeRowOutcomes([run.outcome]);
+      const written = writeRowOutcomes([run.outcome]);
       const o = run.outcome;
       Logger.log('Row ' + item.rowNumber + ' (' + item.datasetId + ', ' + displayKey(item.rowKey) + '): ' +
-        o.status + (o.error ? ' - ' + o.error : ''));
-      done.push({ rowNumber: item.rowNumber, rowKey: item.rowKey, status: o.status, error: o.error });
+        o.status + (o.error ? ' - ' + o.error : '') + '. ' + describeWrites_(written));
+      done.push({ rowNumber: item.rowNumber, rowKey: item.rowKey, status: o.status, error: o.error,
+        notWrittenBack: written.writeback.notFound.length > 0 });
     } catch (e) {
       failure = e && e.message ? e.message : String(e);
       Logger.log('ERROR row ' + item.rowNumber + ': ' + (e && e.stack ? e.stack : e));

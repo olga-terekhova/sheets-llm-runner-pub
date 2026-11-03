@@ -27,7 +27,7 @@ function sampleConfigValues_() {
       CONFIG_COLUMNS.assignments,
       ['a1', 'companies', 'hq_v1', '{"company": "Company Name", "country": "Country"}',
         '{"HQ City": "output_json.headquarters_city", "First Office": "output_json.offices[0].city", ' +
-        '"Cost": "usage.cost.total_cost"}']
+        '"Cost": "usage.cost.total_cost"}', '']
     ]
   };
 }
@@ -71,7 +71,8 @@ function test_buildConfig_valid() {
   assertEqual_(v.schema.properties.headquarters_city.type, ['string', 'null'], 'schema parsed');
   const a = c.assignments.a1;
   assertEqual_(a.inputMapping, { company: 'Company Name', country: 'Country' }, 'input mapping');
-  assertEqual_(a.outputPaths['First Office'], ['output_json', 'offices', 0, 'city'], 'parsed output path');
+  assertEqual_(a.resultsPaths['First Office'], ['output_json', 'offices', 0, 'city'], 'parsed output path');
+  assertEqual_(a.writebackMapping, {}, 'no write-back');
   assertEqual_([c.datasets.companies.tabName, c.datasets.companies.keyColumn], ['Companies', 'ID'], 'dataset');
 }
 
@@ -133,14 +134,14 @@ function test_buildConfig_assignmentErrors() {
     'input_mapping has no entry for placeholders of variant "hq_v1": country', 'unmapped placeholder');
   assertHas_(assignmentErrors('input_mapping', '{"company": "A", "country": "B", "bad-name": "C"}'),
     '"bad-name" is not a valid placeholder name', 'placeholder name');
-  assertHas_(assignmentErrors('output_mapping', '{"_status": "model"}'), 'reserved for system columns', 'underscore column');
-  assertHas_(assignmentErrors('output_mapping', '{"X": "a..b"}'), 'Malformed path', 'malformed path');
-  assertHas_(assignmentErrors('output_mapping', '{"X": 5}'), 'must be a non-empty string', 'non-string path');
-  assertHas_(assignmentErrors('output_mapping', '{"City": "output_json.headquarter_city"}'),
+  assertHas_(assignmentErrors('results_mapping', '{"_status": "model"}'), 'reserved for system columns', 'underscore column');
+  assertHas_(assignmentErrors('results_mapping', '{"X": "a..b"}'), 'Malformed path', 'malformed path');
+  assertHas_(assignmentErrors('results_mapping', '{"X": 5}'), 'must be a non-empty string', 'non-string path');
+  assertHas_(assignmentErrors('results_mapping', '{"City": "output_json.headquarter_city"}'),
     'property "headquarter_city" is not in the variant schema', 'schema typo');
-  assertHas_(assignmentErrors('output_mapping', '{"City": "output_json.offices[0].cty"}'),
+  assertHas_(assignmentErrors('results_mapping', '{"City": "output_json.offices[0].cty"}'),
     'property "cty"', 'nested schema typo');
-  assertEqual_(assignmentErrors('output_mapping', '{"Raw": "output_json", "Any": "usage.whatever"}'), [],
+  assertEqual_(assignmentErrors('results_mapping', '{"Raw": "output_json", "Any": "usage.whatever"}'), [],
     'whole output_json and raw paths are not checked');
   assertHas_(assignmentErrors('dataset_id', ''), 'dataset_id is empty', 'empty dataset_id');
 }
@@ -158,8 +159,54 @@ function test_buildConfig_warnings() {
   assertHas_(a.warnings, 'has no output_json_schema', 'output_json without schema');
 
   const empty = sampleConfigValues_();
-  empty.assignments = withCell_(empty.assignments, 1, 'output_mapping', '');
-  assertHas_(buildConfig(empty).assignments.a1.warnings, 'output_mapping is empty', 'empty output mapping');
+  empty.assignments = withCell_(empty.assignments, 1, 'results_mapping', '');
+  empty.assignments = withCell_(empty.assignments, 1, 'writeback_mapping', '{"HQ": "output_json.headquarters_city"}');
+  assertEqual_(buildConfig(empty).assignments.a1.warnings, [], 'write-back only (empty results_mapping) is fine');
+  empty.assignments = withCell_(empty.assignments, 1, 'writeback_mapping', '');
+  assertHas_(buildConfig(empty).assignments.a1.warnings, 'results_mapping and writeback_mapping are empty',
+    'both mappings empty');
+}
+
+function test_buildConfig_writebackMapping() {
+  function assignmentWith(writeback) {
+    const vals = sampleConfigValues_();
+    vals.assignments = withCell_(vals.assignments, 1, 'writeback_mapping', writeback);
+    vals.assignments.push(['a2', 'companies', 'hq_v1', '{"company": "HQ", "country": "Country"}', '', '']);
+    return buildConfig(vals).assignments.a1;
+  }
+  const ok = assignmentWith('{"HQ": "output_json.headquarters_city", "_note": "output_text", "Src": "sources"}');
+  assertEqual_([ok.errors, ok.writebackPaths.HQ], [[], ['output_json', 'headquarters_city']],
+    'valid; another assignment\'s input column is allowed; "_" allowed on source tabs');
+
+  assertHas_(assignmentWith('{"ID": "model"}').errors,
+    'writeback_mapping writes into the key column "ID" of dataset "companies"', 'key column');
+  assertHas_(assignmentWith('{"Country": "model", "Company Name": "model"}').errors,
+    'writeback_mapping writes into input columns of this assignment: Country, Company Name', 'own input column');
+  assertHas_(assignmentWith('{"HQ": "output_json.hq"}').errors,
+    'writeback_mapping "HQ" (output_json.hq): property "hq" is not in the variant schema', 'schema typo');
+  assertHas_(assignmentWith('{"HQ": "a..b"}').errors, 'writeback_mapping "HQ": Malformed path', 'malformed path');
+  assertHas_(assignmentWith('{"HQ": ').errors, 'writeback_mapping is not valid JSON', 'bad json');
+
+  const absent = sampleConfigValues_();
+  absent.assignments = absent.assignments.map(function (r) { return r.slice(0, 5); });
+  const c = buildConfig(absent);
+  assertEqual_([listProblems(c), c.assignments.a1.writebackMapping], [{ errors: [], warnings: [] }, {}],
+    'writeback_mapping column may be absent');
+}
+
+function test_buildConfig_unknownColumns() {
+  const vals = sampleConfigValues_();
+  vals.assignments = vals.assignments.map(function (r, i) { return r.concat([i ? '' : 'writeback_maping']); });
+  vals.variants = vals.variants.map(function (r, i) { return r.concat([i ? 'x' : 'notes']); });
+  const c = buildConfig(vals);
+  assertHas_(c.warnings, 'Tab "Assignments" has columns the code does not use (ignored): writeback_maping', 'typo');
+  assertHas_(c.warnings, 'Tab "Variants" has columns the code does not use (ignored): notes', 'extra column');
+  assertEqual_(listProblems(c).errors, [], 'only warnings');
+
+  const old = sampleConfigValues_();
+  old.assignments[0] = old.assignments[0].map(function (h) { return h === 'results_mapping' ? 'output_mapping' : h; });
+  const o = buildConfig(old);
+  assertHas_(o.errors, 'Tab "Assignments" is missing columns: results_mapping', 'old header');
 }
 
 function test_parseMappingCell() {
@@ -332,8 +379,11 @@ function test_mapRecordOutputs() {
   const c = buildConfig(sampleConfigValues_());
   const raw = sampleResponse_();
   raw.output[1].content[0].text = '{"headquarters_city":"Ottawa","offices":[{"city":"Toronto"}]}';
-  const r = mapRecordOutputs(raw, c.assignments.a1);
-  assertEqual_(r.values, { 'HQ City': 'Ottawa', 'First Office': 'Toronto', 'Cost': 0.0123 }, 'values');
-  assertEqual_(r.missing, [], 'nothing missing');
+  const a = c.assignments.a1;
+  a.writebackMapping = { 'HQ': 'output_json.headquarters_city', 'Phone': 'output_json.phone' };
+  const r = mapRecordOutputs(raw, a);
+  assertEqual_(r.results.values, { 'HQ City': 'Ottawa', 'First Office': 'Toronto', 'Cost': 0.0123 }, 'values');
+  assertEqual_(r.results.missing, [], 'nothing missing');
+  assertEqual_([r.writeback.values.HQ, r.writeback.missing], ['Ottawa', ['Phone']], 'write-back values');
   assertEqual_(r.envelope.sources, ['https://shopify.com'], 'envelope returned');
 }

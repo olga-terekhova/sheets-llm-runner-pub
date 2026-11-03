@@ -42,6 +42,8 @@ function runAllTests() {
     test_buildConfig_variantErrors,
     test_buildConfig_assignmentErrors,
     test_buildConfig_warnings,
+    test_buildConfig_writebackMapping,
+    test_buildConfig_unknownColumns,
     test_parseMappingCell,
     test_problemsFor_scoped,
     test_attachSourceValues,
@@ -64,8 +66,13 @@ function runAllTests() {
     test_buildRowOutcome_ok,
     test_buildRowOutcome_warning,
     test_buildRowOutcome_errors,
+    test_buildRowOutcome_writeback,
+    test_buildRowOutcome_noResultsMapping,
     test_planAppend,
-    test_escapeCellValue
+    test_escapeCellValue,
+    // Tests_Writeback.gs
+    test_planWriteback_cells,
+    test_planWriteback_errors
   ];
   let passed = 0;
   const failures = [];

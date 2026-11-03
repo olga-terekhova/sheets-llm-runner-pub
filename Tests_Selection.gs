@@ -109,4 +109,9 @@ function test_formatRunSummary() {
   const stopped = formatRunSummary({ jobId: 'j', total: 1, skipped: 0, done: [], notStarted: [{ rowNumber: 3 }], failure: 'disk full' });
   assertHas_([stopped], 'The run stopped: disk full', 'failure');
   assertHas_([stopped], 'Not processed (run stopped)', 'reason');
+  const moved = formatRunSummary({ jobId: 'j', total: 2, skipped: 0, notStarted: [], failure: '', done: [
+    { rowNumber: 3, rowKey: '1', status: 'ok', error: '', notWrittenBack: true },
+    { rowNumber: 4, rowKey: '2', status: 'ok', error: '', notWrittenBack: false }] });
+  assertHas_([moved], 'Not written back (the row moved out of its block during the run; see the Log tab): rows 3.',
+    'write-back not found');
 }

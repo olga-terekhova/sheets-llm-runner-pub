@@ -1,7 +1,8 @@
 /**
  * Run.gs - entry points: create the config tabs, validate the config, and
- * run one source row by key. runRow writes the outcome to the Results tab
- * (upsert) and the Log tab (append); see Results.gs.
+ * run one source row by key. runRow writes the outcome to the Log tab
+ * (append), the Results tab (upsert) and the source tab (write-back); see
+ * Results.gs and Writeback.gs.
  *
  * These need a spreadsheet, so run them from the bound script's editor
  * through its wrappers (bound/Code.gs), not from the library project:
@@ -90,21 +91,27 @@ function dryRunRow(assignmentId, rowKey) {
 
 /**
  * Run one row against the live API, log the details, and write the
- * outcome to the Results and Log tabs.
- * Config problems throw; per-row problems end up in the Results row.
+ * outcome to the Log, Results and source tabs (each per its mapping).
+ * Holds the document lock, like the menu, so it does not run at the same
+ * time as a menu run.
+ * Config problems throw; per-row problems end up in the outcome.
  * @param {string} assignmentId
  * @param {*} rowKey
  * @return {{prep: Object, result: Object, mapped: Object, outcome: Object, written: Object}}
  */
 function runRow(assignmentId, rowKey) {
-  const ctx = loadRunContext(assignmentId);
-  const run = processRow(ctx, rowKey, newJobId_());
-  logRun_('runRow', ctx, run);
-  run.written = writeRowOutcomes([run.outcome]);
-  Logger.log('Wrote ' + RESULTS_TAB + ' (' + run.written.inserted + ' inserted, ' + run.written.updated + ' updated' +
-    (run.written.addedColumns.length ? ', new columns: ' + run.written.addedColumns.join(', ') : '') + '), ' +
-    run.written.logged + ' ' + LOG_TAB + ' row(s)');
-  return run;
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(10000)) throw new Error('Another run is in progress. Wait for it to finish.');
+  try {
+    const ctx = loadRunContext(assignmentId);
+    const run = processRow(ctx, rowKey, newJobId_());
+    logRun_('runRow', ctx, run);
+    run.written = writeRowOutcomes([run.outcome]);
+    Logger.log(describeWrites_(run.written));
+    return run;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
@@ -121,7 +128,7 @@ function runRow(assignmentId, rowKey) {
  */
 function processRow(ctx, rowKey, jobId) {
   const found = findRecord(ctx.dataset, rowKey);
-  const info = { assignment: ctx.assignment, rowKey: found.rowKey, jobId: jobId, runAt: new Date() };
+  const info = { assignment: ctx.assignment, dataset: ctx.dataset, rowKey: found.rowKey, jobId: jobId, runAt: new Date() };
   const run = { prep: null, result: null, mapped: null, outcome: null };
 
   try {
@@ -148,7 +155,7 @@ function processRow(ctx, rowKey, jobId) {
 
 function logRun_(label, ctx, run) {
   if (run.prep) logPrepared_(label, run.prep);
-  else Logger.log('=== ' + label + ': assignment ' + ctx.assignment.id + ', key ' + run.outcome.resultRow._row_key + ' (not prepared) ===');
+  else Logger.log('=== ' + label + ': assignment ' + ctx.assignment.id + ', key ' + run.outcome.rowKey + ' (not prepared) ===');
   const result = run.result;
   if (result) {
     Logger.log('HTTP ' + result.code + ' in ' + result.elapsedMs + ' ms');
@@ -158,11 +165,12 @@ function logRun_(label, ctx, run) {
   const mapped = run.mapped;
   if (mapped) {
     if (mapped.envelope.output_json_error) Logger.log('Output text: ' + truncate_(mapped.envelope.output_text, 3000));
-    Logger.log('Mapped output: ' + JSON.stringify(mapped.values));
+    if (Object.keys(ctx.assignment.resultsMapping).length) Logger.log('Mapped results: ' + JSON.stringify(mapped.results.values));
+    if (Object.keys(ctx.assignment.writebackMapping).length) Logger.log('Mapped write-back: ' + JSON.stringify(mapped.writeback.values));
   }
   const o = run.outcome;
   Logger.log('Status: ' + o.status + (o.error ? ' - ' + o.error : '') +
-    (o.resultRow._missing_paths ? ' (missing paths: ' + o.resultRow._missing_paths + ')' : ''));
+    (o.missingPaths.length ? ' (missing paths: ' + o.missingPaths.join(', ') + ')' : ''));
 }
 
 function logPrepared_(label, prep) {

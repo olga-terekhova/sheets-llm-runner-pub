@@ -29,14 +29,20 @@ function buildRecordPayload(record, variant, assignment) {
 
 /**
  * Map a parsed API response to output column values using the
- * assignment's output mapping. See buildResponseEnvelope for the paths.
+ * assignment's results_mapping and writeback_mapping. See
+ * buildResponseEnvelope for the paths.
  *
  * @param {Object} responseJson
  * @param {Object} assignment
- * @return {{envelope: Object, values: Object, missing: Array<string>}}
+ * @return {{envelope: Object, results: {values: Object, missing: Array<string>},
+ *           writeback: {values: Object, missing: Array<string>}}}
+ *   missing lists column names whose path resolved to undefined
  */
 function mapRecordOutputs(responseJson, assignment) {
   const envelope = buildResponseEnvelope(responseJson);
-  const mapped = applyOutputMapping(envelope, assignment.outputMapping);
-  return { envelope: envelope, values: mapped.values, missing: mapped.missing };
+  return {
+    envelope: envelope,
+    results: applyOutputMapping(envelope, assignment.resultsMapping),
+    writeback: applyOutputMapping(envelope, assignment.writebackMapping)
+  };
 }

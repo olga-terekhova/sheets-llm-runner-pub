@@ -9,13 +9,13 @@ class Sheet{constructor(n){this.n=n;this.d=[];this.maxCols=26;this.maxRows=1000;
  getLastRow(){let l=0;this.d.forEach((r,i)=>{if(r&&r.some(v=>v!==''&&v!==undefined))l=i+1});return l}
  getLastColumn(){let l=0;this.d.forEach(r=>(r||[]).forEach((v,j)=>{if(v!==''&&v!==undefined)l=Math.max(l,j+1)}));return l}
  getRange(r,c,h,w){if(c-1+w>this.maxCols)throw new Error('range beyond max columns');if(r-1+h>this.maxRows)throw new Error('range beyond max rows');return new Range(this,r,c,h,w)}
- getMaxColumns(){return this.maxCols} insertColumnsAfter(a,n){this.maxCols+=n}
+ getMaxColumns(){return this.maxCols} insertColumnsAfter(a,n){this.maxCols+=n} deleteColumns(a,n){this.maxCols-=n}
  getMaxRows(){return this.maxRows} insertRowsAfter(a,n){this.maxRows+=n} setFrozenRows(){}}
 const sheets={};
 const ss={getSheetByName:n=>sheets[n]||null,insertSheet:n=>(sheets[n]=new Sheet(n)),deleteSheet:s=>{delete sheets[s.n]}};
 const ctx={Logger:{log:s=>console.log(s)},SpreadsheetApp:{getActiveSpreadsheet:()=>ss},console};
 vm.createContext(ctx);
-for(const f of ['Util_Json.gs','Util_Template.gs','Api.gs','Util_Sheet.gs','Config.gs','Selection.gs','Pipeline.gs','Results.gs','Run.gs','Menu.gs','Tests.gs','Tests_Sheet.gs','Tests_Config.gs','Tests_Results.gs','Tests_Selection.gs']) vm.runInContext(fs.readFileSync(f,'utf8'),ctx,{filename:f});
+for(const f of ['Util_Json.gs','Util_Template.gs','Api.gs','Util_Sheet.gs','Config.gs','Selection.gs','Pipeline.gs','Results.gs','Writeback.gs','Run.gs','Menu.gs','Tests.gs','Tests_Sheet.gs','Tests_Config.gs','Tests_Results.gs','Tests_Selection.gs','Tests_Writeback.gs']) vm.runInContext(fs.readFileSync(f,'utf8'),ctx,{filename:f});
 vm.runInContext('runAllTests(); testSheetUtils();',ctx);
 // Bound script (bound/Code.gs) against the library: like Apps Script, the library shows only names without a trailing _.
 const lib={};for(const k of Object.keys(ctx))if(typeof ctx[k]==='function'&&!k.endsWith('_'))lib[k]=ctx[k];

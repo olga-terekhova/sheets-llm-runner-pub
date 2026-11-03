@@ -26,14 +26,15 @@ const CONFIG_COLUMNS = {
   datasets: ['dataset_id', 'tab_name', 'key_column', 'dataset_title', 'default_assignment'],
   variants: ['variant_id', 'model', 'prompt_template', 'instructions_template',
     'tools', 'max_urls', 'max_steps', 'output_json_schema'],
-  assignments: ['assignment_id', 'dataset_id', 'variant_id', 'input_mapping', 'output_mapping']
+  assignments: ['assignment_id', 'dataset_id', 'variant_id', 'input_mapping', 'results_mapping',
+    'writeback_mapping']
 };
 
 // Columns that may be absent from a config tab (treated as empty cells).
 const CONFIG_OPTIONAL_COLUMNS = {
   datasets: ['dataset_title', 'default_assignment'],
   variants: [],
-  assignments: []
+  assignments: ['writeback_mapping']
 };
 
 // Column on a source tab that holds dataset headings (see selectDatasetBlock).
@@ -55,7 +56,9 @@ const PLACEHOLDER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
  *                  instructionsTemplate, tools, maxUrls, maxSteps, schema,
  *                  schemaName, errors, warnings} }
  *   assignments  { id: {id, rowNumber, where, datasetId, variantId,
- *                  inputMapping, outputMapping, errors, warnings} }
+ *                  inputMapping, resultsMapping, resultsPaths, writebackMapping,
+ *                  writebackPaths, errors, warnings} }
+ *                  (*Paths: column -> parsed path segments)
  *   errors       problems not tied to one entry (missing tab, missing column, empty id)
  *   warnings     same, for warnings
  *
@@ -66,9 +69,9 @@ function buildConfig(valuesByTab) {
   const config = { datasets: {}, variants: {}, assignments: {}, errors: [], warnings: [] };
   const src = valuesByTab || {};
 
-  collectEntries_(config, 'datasets', readConfigTable_('datasets', src.datasets, config.errors), parseDatasetRow_);
-  collectEntries_(config, 'variants', readConfigTable_('variants', src.variants, config.errors), parseVariantRow_);
-  collectEntries_(config, 'assignments', readConfigTable_('assignments', src.assignments, config.errors), parseAssignmentRow_);
+  collectEntries_(config, 'datasets', readConfigTable_('datasets', src.datasets, config), parseDatasetRow_);
+  collectEntries_(config, 'variants', readConfigTable_('variants', src.variants, config), parseVariantRow_);
+  collectEntries_(config, 'assignments', readConfigTable_('assignments', src.assignments, config), parseAssignmentRow_);
 
   Object.keys(config.assignments).forEach(function (id) {
     linkAssignment_(config.assignments[id], config);
@@ -306,9 +309,14 @@ function gatherProblems_(config, entries) {
   return { errors: errors, warnings: warnings };
 }
 
-/** Parse one config tab; on a tab-level problem record it and return null. */
-function readConfigTable_(kind, values, errors) {
+/**
+ * Parse one config tab; on a tab-level problem record it and return null.
+ * Columns the code does not know are reported as a warning, so a typo in an
+ * optional column name does not go unnoticed.
+ */
+function readConfigTable_(kind, values, config) {
   const tab = CONFIG_TABS[kind];
+  const errors = config.errors;
   if (!values) {
     errors.push('Tab "' + tab + '" not found. Run setupConfigTabs to create it.');
     return null;
@@ -326,6 +334,10 @@ function readConfigTable_(kind, values, errors) {
   if (missing.length) {
     errors.push('Tab "' + tab + '" is missing columns: ' + missing.join(', '));
     return null;
+  }
+  const unknown = table.headers.filter(function (h) { return CONFIG_COLUMNS[kind].indexOf(h) === -1; });
+  if (unknown.length) {
+    config.warnings.push('Tab "' + tab + '" has columns the code does not use (ignored): ' + unknown.join(', '));
   }
   return table;
 }
@@ -410,8 +422,6 @@ function parseAssignmentRow_(row, a) {
   a.datasetId = cellText_(row.dataset_id);
   a.variantId = cellText_(row.variant_id);
   a.inputMapping = {};
-  a.outputMapping = {};
-  a.outputPaths = {}; // column -> parsed path segments
 
   if (!a.datasetId) fail_(a, 'dataset_id is empty');
   if (!a.variantId) fail_(a, 'variant_id is empty');
@@ -427,34 +437,65 @@ function parseAssignmentRow_(row, a) {
     }
   });
 
-  let outputOk = true;
-  try {
-    a.outputMapping = parseMappingCell(row.output_mapping, 'output_mapping');
-  } catch (e) {
-    outputOk = false;
-    fail_(a, e.message);
-  }
-  Object.keys(a.outputMapping).forEach(function (column) {
+  const results = parseOutputMapping_(a, row, 'results_mapping');
+  a.resultsMapping = results.mapping;
+  a.resultsPaths = results.paths;
+  Object.keys(a.resultsMapping).forEach(function (column) {
     if (column.charAt(0) === '_') {
-      fail_(a, 'output_mapping column "' + column + '" starts with "_", which is reserved for system columns');
-    }
-    try {
-      const segments = parsePath_(a.outputMapping[column]);
-      if (!segments.length) throw new Error('path is empty');
-      a.outputPaths[column] = segments;
-    } catch (e) {
-      fail_(a, 'output_mapping "' + column + '": ' + e.message);
+      fail_(a, 'results_mapping column "' + column + '" starts with "_", which is reserved for system columns');
     }
   });
-  if (outputOk && !Object.keys(a.outputMapping).length) {
-    warn_(a, 'output_mapping is empty; nothing will be written to Results');
+
+  // The key column is checked in linkAssignment_, which knows the dataset.
+  const writeback = parseOutputMapping_(a, row, 'writeback_mapping');
+  a.writebackMapping = writeback.mapping;
+  a.writebackPaths = writeback.paths;
+  const ownInputs = Object.keys(a.inputMapping).map(function (k) { return a.inputMapping[k]; });
+  const intoInputs = Object.keys(a.writebackMapping).filter(function (c) { return ownInputs.indexOf(c) !== -1; });
+  if (intoInputs.length) {
+    fail_(a, 'writeback_mapping writes into input columns of this assignment: ' + intoInputs.join(', '));
   }
+
+  if (results.ok && writeback.ok && !Object.keys(a.resultsMapping).length &&
+      !Object.keys(a.writebackMapping).length) {
+    warn_(a, 'results_mapping and writeback_mapping are empty; responses go only to the ' + LOG_TAB + ' tab');
+  }
+}
+
+/**
+ * Parse an output mapping cell ({ column: path }) and its paths. Problems
+ * go into the assignment's errors; ok is false when the cell did not parse.
+ * @return {{mapping: Object<string,string>, paths: Object<string,Array>, ok: boolean}}
+ */
+function parseOutputMapping_(a, row, label) {
+  const out = { mapping: {}, paths: {}, ok: true };
+  try {
+    out.mapping = parseMappingCell(row[label], label);
+  } catch (e) {
+    out.ok = false;
+    fail_(a, e.message);
+  }
+  Object.keys(out.mapping).forEach(function (column) {
+    try {
+      const segments = parsePath_(out.mapping[column]);
+      if (!segments.length) throw new Error('path is empty');
+      out.paths[column] = segments;
+    } catch (e) {
+      fail_(a, label + ' "' + column + '": ' + e.message);
+    }
+  });
+  return out;
 }
 
 /** Cross-reference checks that need the datasets and variants. */
 function linkAssignment_(a, config) {
   if (a.datasetId && !hasOwn_(config.datasets, a.datasetId)) {
     fail_(a, 'dataset_id "' + a.datasetId + '" not found in ' + CONFIG_TABS.datasets);
+  } else if (a.datasetId) {
+    const keyColumn = config.datasets[a.datasetId].keyColumn;
+    if (keyColumn && hasOwn_(a.writebackMapping, keyColumn)) {
+      fail_(a, 'writeback_mapping writes into the key column "' + keyColumn + '" of dataset "' + a.datasetId + '"');
+    }
   }
   if (!a.variantId) return;
   if (!hasOwn_(config.variants, a.variantId)) {
@@ -476,13 +517,18 @@ function linkAssignment_(a, config) {
     warn_(a, 'input_mapping entries not used by the templates of variant "' + v.id + '": ' + unused.join(', '));
   }
 
-  const jsonColumns = Object.keys(a.outputPaths).filter(function (c) { return a.outputPaths[c][0] === 'output_json'; });
-  if (v.schema) {
-    jsonColumns.forEach(function (column) {
-      const problem = schemaPathProblem_(v.schema, a.outputPaths[column].slice(1));
-      if (problem) fail_(a, 'output_mapping "' + column + '" (' + a.outputMapping[column] + '): ' + problem);
+  const jsonColumns = [];
+  [['results_mapping', a.resultsMapping, a.resultsPaths], ['writeback_mapping', a.writebackMapping, a.writebackPaths]]
+    .forEach(function (m) {
+      const label = m[0], mapping = m[1], paths = m[2];
+      Object.keys(paths).forEach(function (column) {
+        if (paths[column][0] !== 'output_json') return;
+        if (jsonColumns.indexOf(column) === -1) jsonColumns.push(column);
+        const problem = v.schema ? schemaPathProblem_(v.schema, paths[column].slice(1)) : '';
+        if (problem) fail_(a, label + ' "' + column + '" (' + mapping[column] + '): ' + problem);
+      });
     });
-  } else if (jsonColumns.length && !v.errors.length) {
+  if (!v.schema && jsonColumns.length && !v.errors.length) {
     warn_(a, 'variant "' + v.id + '" has no output_json_schema, so these columns depend on the model ' +
       'returning JSON on its own: ' + jsonColumns.join(', '));
   }

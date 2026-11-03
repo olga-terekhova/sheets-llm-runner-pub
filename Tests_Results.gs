@@ -11,6 +11,7 @@ function sampleOutcomeInput_() {
   const a = c.assignments.a1;
   return {
     assignment: a,
+    dataset: c.datasets.companies,
     rowKey: '101',
     jobId: 'job_x',
     runAt: new Date(Date.UTC(2026, 9, 27)),
@@ -74,6 +75,66 @@ function test_buildRowOutcome_errors() {
   input.error = 'Missing value for placeholder: company';
   o = buildRowOutcome(input);
   assertEqual_([o.status, o.logRow], ['error', null], 'no call, no log row');
+}
+
+/** sampleOutcomeInput_ with a writeback_mapping (remapped) and an optional results_mapping override. */
+function writebackOutcomeInput_(writeback, results) {
+  const input = sampleOutcomeInput_();
+  const a = input.assignment;
+  a.writebackMapping = writeback;
+  a.writebackPaths = {};
+  Object.keys(writeback).forEach(function (c) { a.writebackPaths[c] = parsePath_(writeback[c]); });
+  if (results) {
+    a.resultsMapping = results;
+    a.resultsPaths = {};
+  }
+  input.mapped = mapRecordOutputs(input.result.json, a);
+  return input;
+}
+
+function test_buildRowOutcome_writeback() {
+  let o = buildRowOutcome(writebackOutcomeInput_({ HQ: 'output_json.headquarters_city', Model: 'model' }));
+  assertEqual_(o.status, 'ok', 'status');
+  assertEqual_(o.writeback, {
+    dataset: { id: 'companies', tabName: 'Companies', keyColumn: 'ID', title: '' },
+    rowKey: '101',
+    values: { HQ: 'Ottawa', Model: 'some/model' }
+  }, 'write-back values with the dataset location');
+  assertTrue_(o.resultRow !== null, 'Results row too');
+
+  o = buildRowOutcome(writebackOutcomeInput_({ HQ: 'output_json.headquarters_city', Phone: 'output_json.phone',
+    City: 'output_json.headquarters_city' }));
+  assertEqual_([o.status, o.writeback.values, o.missingPaths], ['warning', { HQ: 'Ottawa', City: 'Ottawa' },
+    ['output_json.phone']], 'missing path left out of the write-back');
+  assertEqual_([o.resultRow._missing_paths, o.logRow.missing_paths], ['output_json.phone', 'output_json.phone'],
+    'write-back paths reported in Results and Log');
+
+  assertEqual_(buildRowOutcome(writebackOutcomeInput_({ Phone: 'output_json.phone' })).writeback, null,
+    'nothing found, nothing to write');
+
+  const failed = writebackOutcomeInput_({ HQ: 'output_json.headquarters_city' });
+  failed.result = { ok: false, code: 500, elapsedMs: 5, json: null, body: 'oops' };
+  failed.mapped = null;
+  assertEqual_([buildRowOutcome(failed).status, buildRowOutcome(failed).writeback], ['error', null],
+    'error: source cells left unchanged');
+
+  const nullValue = writebackOutcomeInput_({ HQ: 'output_json.headquarters_city' });
+  nullValue.result.json.output[1].content[0].text = '{"headquarters_city": null}';
+  nullValue.mapped = mapRecordOutputs(nullValue.result.json, nullValue.assignment);
+  assertEqual_(buildRowOutcome(nullValue).writeback.values, { HQ: '' }, 'JSON null is written as empty');
+}
+
+function test_buildRowOutcome_noResultsMapping() {
+  const o = buildRowOutcome(writebackOutcomeInput_({ HQ: 'output_json.headquarters_city' }, {}));
+  assertEqual_([o.status, o.resultRow, o.writeback.values], ['ok', null, { HQ: 'Ottawa' }], 'no Results row');
+  assertEqual_([o.logRow.status, o.logRow.row_key], ['ok', '101'], 'status still in the Log');
+
+  const notParsed = writebackOutcomeInput_({ HQ: 'output_json.headquarters_city' }, {});
+  notParsed.result.json.output[1].content[0].text = 'not json';
+  notParsed.mapped = mapRecordOutputs(notParsed.result.json, notParsed.assignment);
+  const w = buildRowOutcome(notParsed);
+  assertEqual_([w.status, w.writeback], ['warning', null], 'write-back paths into output_json count for the parse warning');
+  assertTrue_(w.error.indexOf('Model JSON not parsed') === 0, 'parse error reported');
 }
 
 function test_planAppend() {

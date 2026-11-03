@@ -153,7 +153,8 @@ function formatRowList(rows) {
  * Text for the end-of-run dialog.
  *
  * @param {{jobId: string, total: number, skipped: number,
- *          done: Array<{rowNumber: number, rowKey: string, status: string, error: string}>,
+ *          done: Array<{rowNumber: number, rowKey: string, status: string, error: string,
+ *                       notWrittenBack: boolean}>,
  *          notStarted: Array<{rowNumber: number, rowKey: string}>, failure: string}} s
  *   notStarted: rows not started, plus the row that hit the failure
  *   failure: message of an exception that stopped the run, '' if none
@@ -171,6 +172,11 @@ function formatRunSummary(s) {
   if (failed.length) {
     lines.push('', 'Errors:');
     failed.forEach(function (d) { lines.push('- row ' + d.rowNumber + ' (' + displayKey(d.rowKey) + '): ' + truncate_(String(d.error || ''), 200)); });
+  }
+  const lost = s.done.filter(function (d) { return d.notWrittenBack; });
+  if (lost.length) {
+    lines.push('', 'Not written back (the row moved out of its block during the run; see the ' + LOG_TAB +
+      ' tab): rows ' + formatRowList(lost.map(function (d) { return d.rowNumber; })) + '.');
   }
   if (s.failure) lines.push('', 'The run stopped: ' + s.failure);
   if (s.notStarted.length) {
