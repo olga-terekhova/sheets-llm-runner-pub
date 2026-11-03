@@ -76,4 +76,19 @@ with `No active spreadsheet...`. Run them from a spreadsheet's bound script.
   library functions whose names do not end in `_`; `node run_tests_node.js`
   checks both
 - Check whether the release changed config tabs or columns (see
-  PROJECT.md) and update the tabs before running
+  PROJECT.md and the list below) and update the tabs before running
+
+## Config changes by release
+
+### M8 (write-back)
+- Library: new files `Writeback.gs` and `Tests_Writeback.gs`; most other
+  files changed
+- Assignments tab: rename the header `output_mapping` to `results_mapping`
+  (until then, validation reports `missing columns: results_mapping`)
+- Assignments tab: optionally add a `writeback_mapping` column, e.g.
+  `{"HQ": "output_json.headquarters_city"}`; target columns are created on
+  the source tab on first write
+- Log tab: a `missing_paths` column is added at the right on the next run
+- Check in the guinea pig: Validate config, then Process selection on a few
+  rows of an assignment with a `writeback_mapping`; only the mapped cells
+  change, and an HTTP error leaves them as they were
