@@ -87,7 +87,7 @@ function processSelection_(ui, started) {
     return;
   }
   if (items.length > CONFIRM_ABOVE_ROWS) {
-    const answer = ui.alert(MENU_NAME, 'Process ' + items.length + ' rows (' + countByDataset_(items) +
+    const answer = ui.alert(MENU_NAME, 'Process ' + items.length + ' rows (' + countByAssignment_(items) +
       ')? Each row is one billed API call.', ui.ButtonSet.OK_CANCEL);
     if (answer !== ui.Button.OK) return;
   }
@@ -129,11 +129,19 @@ function processSelection_(ui, started) {
   ui.alert(MENU_NAME, summary, ui.ButtonSet.OK);
 }
 
-/** e.g. 'companies: 3, people: 4' */
-function countByDataset_(items) {
+/**
+ * e.g. 'companies with assignment enrich_opus: 3, people with assignment tag_haiku: 4'.
+ * Naming the assignment lets the user spot an unexpectedly expensive one.
+ */
+function countByAssignment_(items) {
   const counts = {};
-  items.forEach(function (i) { counts[i.datasetId] = (counts[i.datasetId] || 0) + 1; });
-  return Object.keys(counts).map(function (id) { return id + ': ' + counts[id]; }).join(', ');
+  const labels = [];
+  items.forEach(function (i) {
+    const label = i.datasetId + ' with assignment ' + i.assignmentId;
+    if (!(label in counts)) { counts[label] = 0; labels.push(label); }
+    counts[label]++;
+  });
+  return labels.map(function (l) { return l + ': ' + counts[l]; }).join(', ');
 }
 
 /** Show lines in a dialog, cut to DIALOG_MAX_LINES. The caller logs them. */
