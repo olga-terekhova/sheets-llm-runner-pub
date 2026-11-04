@@ -22,6 +22,7 @@ function buildRecordPayload(record, variant, assignment) {
     tools: variant.tools,
     maxUrls: variant.maxUrls,
     maxSteps: variant.maxSteps,
+    maxOutputTokens: variant.maxOutputTokens,
     schema: variant.schema,
     schemaName: variant.schemaName
   });

@@ -21,7 +21,7 @@ function sampleConfigValues_() {
     variants: [
       CONFIG_COLUMNS.variants,
       ['hq_v1', 'some/model', 'Find the HQ of {{company}} in {{ country }}.', 'Answer for {{company}} as JSON.',
-        'web_search, fetch_url', 2, 4, SAMPLE_SCHEMA_TEXT_]
+        'web_search, fetch_url', 2, 4, 8192, SAMPLE_SCHEMA_TEXT_]
     ],
     assignments: [
       CONFIG_COLUMNS.assignments,
@@ -67,7 +67,8 @@ function test_buildConfig_valid() {
   const p = listProblems(c);
   assertEqual_(p, { errors: [], warnings: [] }, 'no problems');
   const v = c.variants.hq_v1;
-  assertEqual_([v.tools, v.maxUrls, v.maxSteps, v.schemaName], [['web_search', 'fetch_url'], 2, 4, 'hq_v1'], 'variant fields');
+  assertEqual_([v.tools, v.maxUrls, v.maxSteps, v.maxOutputTokens, v.schemaName],
+    [['web_search', 'fetch_url'], 2, 4, 8192, 'hq_v1'], 'variant fields');
   assertEqual_(v.schema.properties.headquarters_city.type, ['string', 'null'], 'schema parsed');
   const a = c.assignments.a1;
   assertEqual_(a.inputMapping, { company: 'Company Name', country: 'Country' }, 'input mapping');
@@ -108,12 +109,28 @@ function test_buildConfig_variantErrors() {
   assertHas_(variantErrors('max_urls', '2.5'), 'max_urls must be an integer', 'max_urls fraction');
   assertHas_(variantErrors('tools', 'web_search'), 'max_urls is set but tools does not include fetch_url', 'max_urls without fetch_url');
   assertHas_(variantErrors('max_steps', 0), 'max_steps must be an integer >= 1', 'max_steps');
+  assertHas_(variantErrors('max_output_tokens', 0), 'max_output_tokens must be an integer >= 1', 'max_output_tokens');
   assertHas_(variantErrors('output_json_schema', '{bad'), 'not valid JSON', 'schema');
 
   const ok = sampleConfigValues_();
-  ok.variants = withCell_(withCell_(base.variants, 1, 'max_urls', ''), 1, 'max_steps', '');
+  ok.variants = withCell_(withCell_(withCell_(base.variants, 1, 'max_urls', ''), 1, 'max_steps', ''),
+    1, 'max_output_tokens', '');
   const v = buildConfig(ok).variants.hq_v1;
-  assertEqual_([v.errors, v.maxUrls, v.maxSteps], [[], null, null], 'blank optional cells');
+  assertEqual_([v.errors, v.maxUrls, v.maxSteps, v.maxOutputTokens], [[], null, null, null], 'blank optional cells');
+
+  const claude = sampleConfigValues_();
+  claude.variants = withCell_(withCell_(base.variants, 1, 'model', 'anthropic/claude-sonnet-5-5'), 1, 'max_output_tokens', '');
+  assertHas_(buildConfig(claude).variants.hq_v1.errors, 'max_output_tokens is required for anthropic/* models',
+    'anthropic needs max_output_tokens');
+  claude.variants = withCell_(claude.variants, 1, 'max_output_tokens', 4096);
+  assertEqual_(buildConfig(claude).variants.hq_v1.errors, [], 'anthropic with max_output_tokens');
+
+  const oldTab = sampleConfigValues_();
+  const col = oldTab.variants[0].indexOf('max_output_tokens');
+  oldTab.variants = oldTab.variants.map(function (r) { return r.filter(function (_, j) { return j !== col; }); });
+  const old = buildConfig(oldTab);
+  assertEqual_([old.errors, old.variants.hq_v1.errors, old.variants.hq_v1.maxOutputTokens], [[], [], null],
+    'tab without max_output_tokens column');
 
   const dup = sampleConfigValues_();
   dup.variants.push(dup.variants[1].slice());
@@ -367,7 +384,8 @@ function test_buildRecordPayload() {
   assertEqual_(p.input, 'Find the HQ of Shopify in Canada.', 'prompt rendered');
   assertEqual_(p.instructions, 'Answer for Shopify as JSON.', 'instructions rendered');
   assertEqual_(p.tools, [{ type: 'web_search' }, { type: 'fetch_url', max_urls: 2 }], 'tools');
-  assertEqual_([p.max_steps, p.response_format.json_schema.name], [4, 'hq_v1'], 'steps and schema name');
+  assertEqual_([p.max_steps, p.max_output_tokens, p.response_format.json_schema.name], [4, 8192, 'hq_v1'],
+    'steps, output tokens and schema name');
 
   const plain = sampleConfigValues_();
   plain.variants = withCell_(plain.variants, 1, 'instructions_template', '');

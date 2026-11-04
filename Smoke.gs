@@ -46,6 +46,7 @@ function smokeTestStructured() {
     tools: 'web_search, fetch_url',
     max_urls: 2,
     max_steps: 4,
+    max_output_tokens: 8192,
     output_json_schema: JSON.stringify({
       type: 'object',
       properties: {
@@ -67,6 +68,7 @@ function smokeTestStructured() {
     tools: variant.tools,
     maxUrls: variant.max_urls,
     maxSteps: variant.max_steps,
+    maxOutputTokens: variant.max_output_tokens,
     schema: parseSchemaCell(variant.output_json_schema, variant.variant_id),
     schemaName: schemaNameFromId(variant.variant_id)
   });

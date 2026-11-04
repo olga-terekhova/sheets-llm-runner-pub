@@ -263,11 +263,14 @@ function test_buildAgentPayload() {
     tools: 'web_search, fetch_url',
     maxUrls: 3,
     maxSteps: 4,
+    maxOutputTokens: 2048,
     schema: { type: 'object', properties: { a: { type: 'string' } } },
     schemaName: 'my_schema'
   });
   assertEqual_(p.tools, [{ type: 'web_search' }, { type: 'fetch_url', max_urls: 3 }], 'tools');
   assertEqual_(p.max_steps, 4, 'max_steps');
+  assertEqual_(p.max_output_tokens, 2048, 'max_output_tokens');
+  assertThrows_(function () { buildAgentPayload({ model: 'm', input: 'q', maxOutputTokens: 1.5 }); }, 'maxOutputTokens', 'maxOutputTokens integer');
   assertEqual_(p.response_format.json_schema.name, 'my_schema', 'schema name');
   assertEqual_(buildAgentPayload({ model: 'm', input: 'q' }), { model: 'm', input: 'q' }, 'minimal');
   assertThrows_(function () { buildAgentPayload({ model: 'm', input: 'q', tools: 'fetch_url', maxUrls: 11 }); }, 'maxUrls', 'maxUrls range');

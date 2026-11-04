@@ -25,7 +25,7 @@ const CONFIG_TABS = {
 const CONFIG_COLUMNS = {
   datasets: ['dataset_id', 'tab_name', 'key_column', 'dataset_title', 'default_assignment'],
   variants: ['variant_id', 'model', 'prompt_template', 'instructions_template',
-    'tools', 'max_urls', 'max_steps', 'output_json_schema'],
+    'tools', 'max_urls', 'max_steps', 'max_output_tokens', 'output_json_schema'],
   assignments: ['assignment_id', 'dataset_id', 'variant_id', 'input_mapping', 'results_mapping',
     'writeback_mapping']
 };
@@ -33,7 +33,7 @@ const CONFIG_COLUMNS = {
 // Columns that may be absent from a config tab (treated as empty cells).
 const CONFIG_OPTIONAL_COLUMNS = {
   datasets: ['dataset_title', 'default_assignment'],
-  variants: [],
+  variants: ['max_output_tokens'],
   assignments: ['writeback_mapping']
 };
 
@@ -53,8 +53,8 @@ const PLACEHOLDER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
  *   datasets     { id: {id, rowNumber, where, tabName, keyColumn, title,
  *                  defaultAssignment, errors, warnings} }
  *   variants     { id: {id, rowNumber, where, model, promptTemplate,
- *                  instructionsTemplate, tools, maxUrls, maxSteps, schema,
- *                  schemaName, errors, warnings} }
+ *                  instructionsTemplate, tools, maxUrls, maxSteps,
+ *                  maxOutputTokens, schema, schemaName, errors, warnings} }
  *   assignments  { id: {id, rowNumber, where, datasetId, variantId,
  *                  inputMapping, resultsMapping, resultsPaths, writebackMapping,
  *                  writebackPaths, errors, warnings} }
@@ -386,6 +386,7 @@ function parseVariantRow_(row, v) {
   v.tools = [];
   v.maxUrls = null;
   v.maxSteps = null;
+  v.maxOutputTokens = null;
   v.schema = null;
   v.schemaName = schemaNameFromId(v.id);
 
@@ -410,6 +411,14 @@ function parseVariantRow_(row, v) {
   const steps = parseIntCell_(row.max_steps, 1, null);
   if (steps.error) fail_(v, 'max_steps ' + steps.error);
   v.maxSteps = steps.value;
+
+  const outTokens = parseIntCell_(row.max_output_tokens, 1, null);
+  if (outTokens.error) fail_(v, 'max_output_tokens ' + outTokens.error);
+  v.maxOutputTokens = outTokens.value;
+  // The Agent API rejects anthropic/* models without max_output_tokens (HTTP 400).
+  if (v.maxOutputTokens === null && !outTokens.error && /^anthropic\//i.test(v.model)) {
+    fail_(v, 'max_output_tokens is required for anthropic/* models');
+  }
 
   try {
     v.schema = parseSchemaCell(row.output_json_schema, v.id);

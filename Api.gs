@@ -59,6 +59,8 @@ function normalizeToolList(tools) {
  *   tools        array or comma-separated string of 'web_search' / 'fetch_url'
  *   maxUrls      integer 1-10, optional, applied to the fetch_url tool
  *   maxSteps     integer, optional, top-level max_steps
+ *   maxOutputTokens integer, optional, top-level max_output_tokens
+ *                (required by the API for anthropic/* models)
  *   schema       object, optional, JSON schema for structured output
  *   schemaName   string, optional, default 'output' (1-64 chars: A-Z a-z 0-9 _ -)
  *
@@ -94,6 +96,14 @@ function buildAgentPayload(spec) {
       throw new Error('maxSteps must be a positive integer, got: ' + spec.maxSteps);
     }
     payload.max_steps = s;
+  }
+
+  if (isPresent_(spec.maxOutputTokens)) {
+    const t = Number(spec.maxOutputTokens);
+    if (!(t >= 1 && Math.floor(t) === t)) {
+      throw new Error('maxOutputTokens must be a positive integer, got: ' + spec.maxOutputTokens);
+    }
+    payload.max_output_tokens = t;
   }
 
   if (spec.schema) {
