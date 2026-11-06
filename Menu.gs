@@ -7,8 +7,9 @@
  *      map rows to keys (Selection.gs). Non-data rows are skipped.
  *   2. Check the config of every involved assignment; any error stops the
  *      run before the first billed call.
- *   3. More than CONFIRM_ABOVE_ROWS rows: OK/Cancel. More than
- *      MAX_SELECTION_ROWS: refused (until chunking is built).
+ *   3. More than CONFIRM_ABOVE_ROWS rows: OK/Cancel, so the user can check
+ *      the row count. There is no upper limit: the time budget below stops
+ *      a long run cleanly, and the summary lists the rows to run again.
  *   4. Rows run one by one; Log, Results and write-back cells (each per
  *      its mapping) are written after each row, so
  *      a stopped run keeps what was done. No new row is started after
@@ -24,7 +25,6 @@
 
 const MENU_NAME = 'LLM Runner';
 const CONFIRM_ABOVE_ROWS = 5;
-const MAX_SELECTION_ROWS = 100;
 const RUN_TIME_BUDGET_MS = 4.5 * 60 * 1000;
 const DIALOG_MAX_LINES = 25;
 
@@ -79,11 +79,6 @@ function processSelection_(ui, started) {
       plan.errors.map(function (e) { return '- ' + e; }));
     lines.forEach(function (l) { Logger.log(l); });
     showLines_(ui, lines);
-    return;
-  }
-  if (items.length > MAX_SELECTION_ROWS) {
-    ui.alert(MENU_NAME, items.length + ' rows selected. At most ' + MAX_SELECTION_ROWS +
-      ' rows can run at once for now; select fewer rows.', ui.ButtonSet.OK);
     return;
   }
   if (items.length > CONFIRM_ABOVE_ROWS) {
