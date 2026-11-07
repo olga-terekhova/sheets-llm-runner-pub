@@ -1,7 +1,7 @@
 # Setup of sheets-llm-runner
 
 The code lives in one standalone Apps Script project (the library). Each
-spreadsheet has a small bound script, [bound/Code.gs](bound/Code.gs), with
+spreadsheet has a small bound script, [bound/Code.gs](../bound/Code.gs), with
 `onOpen` and one-line wrappers that call the library under the identifier
 `LLMRunner`.
 
@@ -14,7 +14,7 @@ spreadsheet has a small bound script, [bound/Code.gs](bound/Code.gs), with
 
 ### The library project
 - Create a new project on script.google.com, name it `sheets-llm-runner`
-- Add a script file for each `.gs` file in the repo root and paste its
+- Add a script file for each `.gs` file in `library/` and paste its
   content (the editor adds `.gs` to the name). Do not add `bound/Code.gs` or
   `run_tests_node.js`
 - Delete the default `Code.gs` (with `myFunction`), save
@@ -45,7 +45,7 @@ with `No active spreadsheet...`. Run them from a spreadsheet's bound script.
     version number for any other spreadsheet
   - Identifier: `LLMRunner` (exactly; the wrappers use it)
   - Add
-- Paste [bound/Code.gs](bound/Code.gs) into `Code.gs`, save
+- Paste [bound/Code.gs](../bound/Code.gs) into `Code.gs`, save
 - Run `validateConfig` from the editor; allow the permissions it asks for
   (spreadsheet, external service, dialogs)
 - New spreadsheet only: run `setupConfigTabs`, then fill in Datasets,
@@ -64,7 +64,7 @@ with `No active spreadsheet...`. Run them from a spreadsheet's bound script.
 ## Making changes
 
 ### In the library
-- Update the changed `.gs` files in the library project, save
+- Update the changed `library/*.gs` files in the library project, save
 - The guinea pig runs the new code at once: test it there
 - When it works: create a library version (see above)
 
