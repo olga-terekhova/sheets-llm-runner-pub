@@ -16,7 +16,7 @@ spreadsheet has a small bound script, [bound/Code.gs](../bound/Code.gs), with
 - Create a new project on script.google.com, name it `sheets-llm-runner`
 - Add a script file for each `.gs` file in `library/` and paste its
   content (the editor adds `.gs` to the name). Do not add `bound/Code.gs` or
-  `run_tests_node.js`
+  `local_tests/run_tests_node.js`
 - Delete the default `Code.gs` (with `myFunction`), save
 - Project Settings - Script properties - Add property `PERPLEXITY_API_KEY`
   with the API key. All spreadsheets share this key; a bound script's own
@@ -73,8 +73,8 @@ with `No active spreadsheet...`. Run them from a spreadsheet's bound script.
   version - Save
 - If `bound/Code.gs` changed (e.g. a new menu item), paste it again. A menu
   item must name a wrapper in the bound script, and a wrapper can call only
-  library functions whose names do not end in `_`; `node run_tests_node.js`
-  checks both
+  library functions whose names do not end in `_`;
+  `node local_tests/run_tests_node.js` checks both
 - Check whether the release changed config tabs or columns (see
   PROJECT.md and the list below) and update the tabs before running
 
